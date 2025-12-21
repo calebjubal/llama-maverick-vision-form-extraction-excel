@@ -119,6 +119,34 @@ if not images or not excel:
     st.info("Upload images and an Excel file to continue")
     st.stop()
 
+if "uploaded_excel_name" not in st.session_state:
+    st.session_state["uploaded_excel_name"] = None
+    st.session_state["excel_bytes_cache"] = None
+    st.session_state["updated_workbook"] = None
+    st.session_state["updated_sheet"] = None
+    st.session_state["update_message"] = None
+
+if st.session_state["uploaded_excel_name"] != excel.name:
+    st.session_state["uploaded_excel_name"] = excel.name
+    st.session_state["excel_bytes_cache"] = excel.getvalue()
+    st.session_state["updated_workbook"] = None
+    st.session_state["updated_sheet"] = None
+    st.session_state["update_message"] = None
+elif st.session_state["excel_bytes_cache"] is None:
+    st.session_state["excel_bytes_cache"] = excel.getvalue()
+
+excel_bytes = st.session_state["excel_bytes_cache"]
+
+preview_buffer = io.BytesIO(excel_bytes)
+wb_preview = load_workbook(preview_buffer, read_only=True)
+excel_sheetnames = wb_preview.sheetnames
+wb_preview.close()
+preview_buffer.close()
+
+if not excel_sheetnames:
+    st.error("No worksheets found in the uploaded workbook")
+    st.stop()
+
 records = []
 image_map = {}
 failed = []
@@ -179,18 +207,55 @@ if records:
             use_column_width=True
         )
 
+    st.subheader("📎 Excel Destination")
+    selected_sheet = st.selectbox(
+        "Select worksheet to append rows",
+        options=excel_sheetnames,
+        help="All reviewed rows will be appended to this sheet."
+    )
+
     # ================= SUBMIT ================= #
     if st.button("✅ Submit to Excel"):
-        wb = load_workbook(excel)
-        ws = wb.active
+        with st.spinner("Updating workbook..."):
+            workbook_buffer = io.BytesIO(excel_bytes)
+            wb = load_workbook(workbook_buffer)
 
-        for _, row in edited_df.iterrows():
-            ws.append(
-                [row[col] for col in TARGET_FIELDS]
-            )
+            if selected_sheet not in wb.sheetnames:
+                st.error("Selected worksheet is not available in the uploaded workbook")
+            else:
+                ws = wb[selected_sheet]
 
-        wb.save(excel.name)
-        st.success("Excel updated successfully")
+                for _, row in edited_df.iterrows():
+                    ws.append(
+                        [row[col] for col in TARGET_FIELDS]
+                    )
+
+                output_buffer = io.BytesIO()
+                wb.save(output_buffer)
+                output_buffer.seek(0)
+                updated_bytes = output_buffer.getvalue()
+                output_buffer.close()
+
+                st.session_state["excel_bytes_cache"] = updated_bytes
+                st.session_state["updated_workbook"] = updated_bytes
+                st.session_state["updated_sheet"] = selected_sheet
+                st.session_state["update_message"] = (
+                    f"Excel sheet '{selected_sheet}' updated successfully."
+                )
+
+            wb.close()
+            workbook_buffer.close()
+
+    if st.session_state.get("update_message"):
+        st.success(st.session_state["update_message"])
+
+    if st.session_state.get("updated_workbook"):
+        st.download_button(
+            "⬇️ Download updated workbook",
+            data=st.session_state["updated_workbook"],
+            file_name=f"updated_{excel.name}",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
 else:
     st.warning("No valid data extracted")
