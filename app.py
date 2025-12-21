@@ -16,7 +16,8 @@ MAX_IMAGES = 20
 
 TARGET_FIELDS = [
     "Workshop Code",
-    "Workshop Name & Location",
+    "Workshop Name",
+    "Location",
     "Claim No",
     "Dealer Lot",
     "Mileage",
