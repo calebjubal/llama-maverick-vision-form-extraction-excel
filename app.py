@@ -30,6 +30,72 @@ TARGET_FIELDS = [
     "Dealer Observation"
 ]
 
+
+def _normalize_label(value):
+    if value is None:
+        return ""
+    return "".join(ch for ch in str(value).lower() if ch.isalnum())
+
+
+def detect_sheet_headers(workbook_bytes, sheet_name):
+    headers = []
+    buffer = io.BytesIO(workbook_bytes)
+    wb = None
+    try:
+        wb = load_workbook(buffer, read_only=True, data_only=True)
+        if sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            for row in ws.iter_rows(values_only=True):
+                row_values = [
+                    str(cell).strip() if cell is not None else ""
+                    for cell in row
+                ]
+                if any(row_values):
+                    headers = row_values
+                    break
+    finally:
+        if wb:
+            wb.close()
+        buffer.close()
+
+    while headers and headers[-1] == "":
+        headers.pop()
+
+    return headers
+
+
+def build_header_lookup(headers):
+    lookup = {}
+    for idx, header in enumerate(headers):
+        normalized = _normalize_label(header)
+        if normalized and normalized not in lookup:
+            lookup[normalized] = idx
+    return lookup
+
+
+def build_row_for_headers(row_data, headers, header_lookup):
+    if header_lookup:
+        row_length = len(headers)
+        row_values = ["" for _ in range(row_length)]
+        missing_fields = []
+
+        for field in TARGET_FIELDS:
+            normalized_field = _normalize_label(field)
+            value = row_data.get(field, "")
+            if normalized_field in header_lookup:
+                row_values[header_lookup[normalized_field]] = value
+            else:
+                missing_fields.append(field)
+
+        if missing_fields:
+            for field in missing_fields:
+                row_values.append(row_data.get(field, ""))
+
+        return row_values, missing_fields
+
+    fallback_row = [row_data.get(field, "") for field in TARGET_FIELDS]
+    return fallback_row, []
+
 # ================= INIT ================= #
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
@@ -214,6 +280,28 @@ if records:
         help="All reviewed rows will be appended to this sheet."
     )
 
+    sheet_headers = detect_sheet_headers(excel_bytes, selected_sheet)
+    header_lookup = build_header_lookup(sheet_headers)
+    missing_header_fields = [
+        field for field in TARGET_FIELDS
+        if _normalize_label(field) not in header_lookup
+    ]
+
+    if sheet_headers:
+        pretty_headers = [h if h else "<blank>" for h in sheet_headers]
+        st.caption(
+            f"Detected headers in '{selected_sheet}': {', '.join(pretty_headers)}"
+        )
+    else:
+        st.warning(
+            "Could not detect headers in this worksheet. Data will follow the default field order."
+        )
+
+    if missing_header_fields:
+        st.info(
+            "Columns not found in sheet: " + ", ".join(missing_header_fields)
+        )
+
     # ================= SUBMIT ================= #
     if st.button("✅ Submit to Excel"):
         with st.spinner("Updating workbook..."):
@@ -224,11 +312,16 @@ if records:
                 st.error("Selected worksheet is not available in the uploaded workbook")
             else:
                 ws = wb[selected_sheet]
+                cumulative_missing = set()
 
                 for _, row in edited_df.iterrows():
-                    ws.append(
-                        [row[col] for col in TARGET_FIELDS]
+                    row_values, row_missing = build_row_for_headers(
+                        row.to_dict(),
+                        sheet_headers,
+                        header_lookup
                     )
+                    cumulative_missing.update(row_missing)
+                    ws.append(row_values)
 
                 output_buffer = io.BytesIO()
                 wb.save(output_buffer)
@@ -239,9 +332,11 @@ if records:
                 st.session_state["excel_bytes_cache"] = updated_bytes
                 st.session_state["updated_workbook"] = updated_bytes
                 st.session_state["updated_sheet"] = selected_sheet
-                st.session_state["update_message"] = (
-                    f"Excel sheet '{selected_sheet}' updated successfully."
-                )
+                message = f"Excel sheet '{selected_sheet}' updated successfully."
+                if cumulative_missing:
+                    message += " Columns added at the end for: " + \
+                        ", ".join(sorted(cumulative_missing))
+                st.session_state["update_message"] = message
 
             wb.close()
             workbook_buffer.close()
