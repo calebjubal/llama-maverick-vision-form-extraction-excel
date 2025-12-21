@@ -52,6 +52,7 @@ TARGET SCHEMA (keys must match EXACTLY):
 {json.dumps({k: "" for k in TARGET_FIELDS}, indent=2)}
 
 RULES:
+- extract direct place/city name for the location (e.g., "PUNALUR-SRV, PUNALUR" -> "PUNALUR")
 - Dates must be dd-mm-yy
 - Mileage must be an integer
 - VIN Last 6 must be numeric
