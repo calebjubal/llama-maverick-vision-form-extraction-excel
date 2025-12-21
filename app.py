@@ -33,6 +33,9 @@ TARGET_FIELDS = [
 # ================= INIT ================= #
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
+# ================= LOCAL TESTING ================= #
+# client = Groq()
+
 # ================= PROMPT ================= #
 def build_prompt():
     return f"""
