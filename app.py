@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 import json
 import base64
+import hashlib
 from groq import Groq
 from openpyxl import load_workbook
 from PIL import Image
@@ -13,6 +14,8 @@ import io
 
 # ================= CONFIG ================= #
 MAX_IMAGES = 20
+EDITOR_KEY = "review_editor_table"
+EDITOR_SIGNATURE_KEY = "review_editor_signature"
 
 TARGET_FIELDS = [
     "Workshop Code",
@@ -95,6 +98,11 @@ def build_row_for_headers(row_data, headers, header_lookup):
 
     fallback_row = [row_data.get(field, "") for field in TARGET_FIELDS]
     return fallback_row, []
+
+
+def build_records_signature(records):
+    serialized = json.dumps(records, sort_keys=True)
+    return hashlib.sha256(serialized.encode()).hexdigest()
 
 # ================= INIT ================= #
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -250,12 +258,20 @@ if records:
     ordered_cols = ["Row ID", "Source Image"] + TARGET_FIELDS
     df = df[ordered_cols]
 
+    records_signature = build_records_signature(records)
+
+    if st.session_state.get(EDITOR_SIGNATURE_KEY) != records_signature:
+        st.session_state[EDITOR_SIGNATURE_KEY] = records_signature
+        if EDITOR_KEY in st.session_state:
+            del st.session_state[EDITOR_KEY]
+
     st.subheader("✏️ Review & Edit Extracted Data")
 
     edited_df = st.data_editor(
         df,
         num_rows="dynamic",
-        use_container_width=True
+        use_container_width=True,
+        key=EDITOR_KEY
     )
 
     # ================= IMAGE PREVIEW ================= #
