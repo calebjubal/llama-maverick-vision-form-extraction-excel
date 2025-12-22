@@ -16,6 +16,7 @@ import io
 MAX_IMAGES = 20
 EDITOR_KEY = "review_editor_table"
 EDITOR_SIGNATURE_KEY = "review_editor_signature"
+EDITOR_DF_KEY = "review_editor_dataframe"
 
 TARGET_FIELDS = [
     "Workshop Code",
@@ -262,17 +263,22 @@ if records:
 
     if st.session_state.get(EDITOR_SIGNATURE_KEY) != records_signature:
         st.session_state[EDITOR_SIGNATURE_KEY] = records_signature
+        st.session_state[EDITOR_DF_KEY] = df.copy()
         if EDITOR_KEY in st.session_state:
             del st.session_state[EDITOR_KEY]
+    elif EDITOR_DF_KEY not in st.session_state:
+        st.session_state[EDITOR_DF_KEY] = df.copy()
 
     st.subheader("✏️ Review & Edit Extracted Data")
 
     edited_df = st.data_editor(
-        df,
+        st.session_state[EDITOR_DF_KEY],
         num_rows="dynamic",
         use_container_width=True,
         key=EDITOR_KEY
     )
+
+    st.session_state[EDITOR_DF_KEY] = edited_df.copy()
 
     # ================= IMAGE PREVIEW ================= #
     st.subheader("🖼️ Preview Source Image")
