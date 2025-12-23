@@ -14,9 +14,8 @@ import io
 
 # ================= CONFIG ================= #
 MAX_IMAGES = 20
-EDITOR_KEY = "review_editor_table"
-EDITOR_SIGNATURE_KEY = "review_editor_signature"
-EDITOR_DF_KEY = "review_editor_dataframe"
+ROW_STORE_KEY = "row_state_store"
+ROW_SIGNATURE_KEY = "row_state_signature"
 
 TARGET_FIELDS = [
     "Workshop Code",
@@ -261,24 +260,40 @@ if records:
 
     records_signature = build_records_signature(records)
 
-    if st.session_state.get(EDITOR_SIGNATURE_KEY) != records_signature:
-        st.session_state[EDITOR_SIGNATURE_KEY] = records_signature
-        st.session_state[EDITOR_DF_KEY] = df.copy()
-        if EDITOR_KEY in st.session_state:
-            del st.session_state[EDITOR_KEY]
-    elif EDITOR_DF_KEY not in st.session_state:
-        st.session_state[EDITOR_DF_KEY] = df.copy()
+    if st.session_state.get(ROW_SIGNATURE_KEY) != records_signature:
+        st.session_state[ROW_SIGNATURE_KEY] = records_signature
+        st.session_state[ROW_STORE_KEY] = {}
+
+    if ROW_STORE_KEY not in st.session_state:
+        st.session_state[ROW_STORE_KEY] = {}
 
     st.subheader("✏️ Review & Edit Extracted Data")
 
-    edited_df = st.data_editor(
-        st.session_state[EDITOR_DF_KEY],
-        num_rows="dynamic",
-        use_container_width=True,
-        key=EDITOR_KEY
-    )
+    edited_records = []
+    for _, row in df.iterrows():
+        row_id = int(row["Row ID"])
+        row_store = st.session_state[ROW_STORE_KEY]
+        if row_id not in row_store:
+            row_store[row_id] = {field: row[field] for field in TARGET_FIELDS}
 
-    st.session_state[EDITOR_DF_KEY] = edited_df.copy()
+        with st.expander(
+            f"Row {row_id} • {row['Source Image']}",
+            expanded=False
+        ):
+            for field in TARGET_FIELDS:
+                input_key = f"row_input_{records_signature}_{row_id}_{field}"
+                current_value = row_store[row_id].get(field, "")
+                row_store[row_id][field] = st.text_input(
+                    field,
+                    value=current_value,
+                    key=input_key
+                )
+
+        record = {"Row ID": row_id, "Source Image": row["Source Image"]}
+        record.update(row_store[row_id])
+        edited_records.append(record)
+
+    edited_df = pd.DataFrame(edited_records)
 
     # ================= IMAGE PREVIEW ================= #
     st.subheader("🖼️ Preview Source Image")
